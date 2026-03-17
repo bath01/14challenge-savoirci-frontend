@@ -22,7 +22,8 @@ function indexToLetter(index) {
     :class="{
       'quiz-option--correct': answered && isCorrect,
       'quiz-option--wrong': answered && isPicked && !isCorrect,
-      'quiz-option--clickable': !answered
+      'quiz-option--clickable': !answered,
+      'quiz-option--shake': answered && isPicked && !isCorrect
     }"
     @click="!answered && $emit('select', index)"
   >
@@ -119,6 +120,21 @@ function indexToLetter(index) {
 
 .quiz-option__icon--wrong {
   color: var(--color-red);
+}
+
+/* Animation shake sur mauvaise réponse */
+.quiz-option--shake {
+  animation: shake 0.5s ease-in-out;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  15% { transform: translateX(-6px); }
+  30% { transform: translateX(6px); }
+  45% { transform: translateX(-4px); }
+  60% { transform: translateX(4px); }
+  75% { transform: translateX(-2px); }
+  90% { transform: translateX(2px); }
 }
 
 /* ---- Responsive mobile ---- */

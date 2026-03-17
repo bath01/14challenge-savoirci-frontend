@@ -1,35 +1,67 @@
 <script setup>
-import { onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useQuizStore } from '@/stores/quiz.js'
-import { questions } from '@/data/questions.js'
+import { useAchievementsStore } from '@/stores/achievements.js'
+import { useConfetti } from '@/composables/useConfetti.js'
+import BadgeNotification from '@/components/quiz/BadgeNotification.vue'
+import ShareResult from '@/components/quiz/ShareResult.vue'
 
 const router = useRouter()
 const quizStore = useQuizStore()
+const achievements = useAchievementsStore()
+const { fire: fireConfetti } = useConfetti()
 
-// Redirige si aucun quiz n'a été complété
-onMounted(() => {
-  if (!quizStore.selectedCategory || quizStore.answers.length === 0) {
+const loading = ref(true)
+const resultDetails = ref([])
+
+// Charge les résultats depuis l'API
+onMounted(async () => {
+  if (!quizStore.selectedCategory || !quizStore.sessionId) {
     router.replace('/categories')
+    return
+  }
+
+  try {
+    const result = await quizStore.loadResult()
+    if (result?.details) {
+      resultDetails.value = result.details
+    }
+  } catch {
+    /* Utilise les données locales en fallback */
+  } finally {
+    loading.value = false
+  }
+
+  // Confetti si bon score
+  if (quizStore.scorePercent >= 60) {
+    fireConfetti(3000)
   }
 })
 
 /** Relance le quiz avec la même catégorie */
-function handleReplay() {
-  quizStore.startQuiz(quizStore.selectedCategory)
-  router.push('/quiz')
+async function handleReplay() {
+  try {
+    await quizStore.startQuiz(quizStore.selectedCategory)
+    router.push('/quiz')
+  } catch {
+    router.push('/categories')
+  }
 }
 
-/** Récupère le texte d'une option à partir de son index */
-function getOptionText(questionIndex, optionIndex) {
-  const categoryQuestions = questions[quizStore.selectedCategory.id]
-  if (!categoryQuestions || !categoryQuestions[questionIndex]) return ''
-  return categoryQuestions[questionIndex].options[optionIndex] || ''
+/** Libellé du statut pour le récapitulatif */
+function getStatusLabel(detail) {
+  if (detail.timeExpired) return 'Temps écoulé'
+  if (detail.skipped) return 'Passée'
+  return null
 }
 </script>
 
 <template>
   <div v-if="quizStore.selectedCategory" class="score container">
+    <!-- Badges débloqués -->
+    <BadgeNotification :badges="achievements.newlyUnlocked" />
+
     <!-- En-tête du résultat -->
     <p class="score__category">{{ quizStore.selectedCategory.name }} — Résultat</p>
     <h1 class="score__percent">{{ quizStore.scorePercent }}%</h1>
@@ -42,27 +74,86 @@ function getOptionText(questionIndex, optionIndex) {
       sur {{ quizStore.totalQuestions }}
     </p>
 
+    <!-- Statistiques de la session -->
+    <div class="score__stats">
+      <div class="score__stat">
+        <span class="score__stat-value">🔥 {{ achievements.bestStreak }}</span>
+        <span class="score__stat-label">Meilleur streak</span>
+      </div>
+      <div class="score__stat">
+        <span class="score__stat-value">🏅 {{ achievements.unlockedCount }}/{{ achievements.totalBadges }}</span>
+        <span class="score__stat-label">Badges</span>
+      </div>
+      <div class="score__stat">
+        <span class="score__stat-value">📊 {{ achievements.totalQuizzes }}</span>
+        <span class="score__stat-label">Quiz joués</span>
+      </div>
+    </div>
+
+    <!-- Carte de résultat partageable -->
+    <ShareResult
+      :category-name="quizStore.selectedCategory.name"
+      :category-color="quizStore.selectedCategory.color"
+      :score-percent="quizStore.scorePercent"
+      :result-message="quizStore.resultMessage"
+      :score="quizStore.score"
+      :total-questions="quizStore.totalQuestions"
+      :best-streak="achievements.bestStreak"
+      :badges-count="achievements.unlockedCount"
+      :total-badges="achievements.totalBadges"
+    />
+
     <!-- Récapitulatif des réponses -->
     <div class="score__recap">
       <p class="score__recap-title">Récapitulatif</p>
-      <div
-        v-for="(answer, i) in quizStore.answers"
-        :key="i"
-        class="score__answer"
-      >
-        <span class="score__answer-icon" :class="answer.isCorrect ? 'score__answer-icon--correct' : 'score__answer-icon--wrong'">
-          {{ answer.isCorrect ? '✓' : '✗' }}
-        </span>
-        <div class="score__answer-content">
-          <p class="score__answer-question">{{ answer.question }}</p>
-          <p v-if="!answer.isCorrect && answer.pickedIndex >= 0" class="score__answer-picked">
-            Votre réponse : {{ getOptionText(i, answer.pickedIndex) }}
-          </p>
-          <p class="score__answer-correct">
-            Bonne réponse : {{ getOptionText(i, answer.correctIndex) }}
-          </p>
+
+      <!-- Résultats API (détaillés) -->
+      <template v-if="resultDetails.length">
+        <div
+          v-for="detail in resultDetails"
+          :key="detail.questionNumber"
+          class="score__answer"
+        >
+          <span class="score__answer-icon" :class="detail.isCorrect ? 'score__answer-icon--correct' : 'score__answer-icon--wrong'">
+            {{ detail.isCorrect ? '✓' : '✗' }}
+          </span>
+          <div class="score__answer-content">
+            <p class="score__answer-question">{{ detail.question }}</p>
+            <p v-if="getStatusLabel(detail)" class="score__answer-status">
+              {{ getStatusLabel(detail) }}
+            </p>
+            <p v-if="!detail.isCorrect && detail.providedAnswer" class="score__answer-picked">
+              Votre réponse : {{ detail.providedAnswer }}
+            </p>
+            <p class="score__answer-correct">
+              Bonne réponse : {{ detail.correctAnswer }}
+            </p>
+          </div>
         </div>
-      </div>
+      </template>
+
+      <!-- Fallback : données locales -->
+      <template v-else>
+        <div
+          v-for="(answer, i) in quizStore.answers"
+          :key="i"
+          class="score__answer"
+        >
+          <span class="score__answer-icon" :class="answer.isCorrect ? 'score__answer-icon--correct' : 'score__answer-icon--wrong'">
+            {{ answer.isCorrect ? '✓' : '✗' }}
+          </span>
+          <div class="score__answer-content">
+            <p class="score__answer-question">{{ answer.question }}</p>
+            <p v-if="answer.timeExpired" class="score__answer-status">Temps écoulé</p>
+            <p v-if="!answer.isCorrect && answer.providedAnswer" class="score__answer-picked">
+              Votre réponse : {{ answer.providedAnswer }}
+            </p>
+            <p class="score__answer-correct">
+              Bonne réponse : {{ answer.correctAnswer }}
+            </p>
+          </div>
+        </div>
+      </template>
     </div>
 
     <!-- Actions -->
@@ -117,7 +208,41 @@ function getOptionText(questionIndex, optionIndex) {
   font-size: 15px;
   color: var(--text-secondary);
   font-family: var(--font-sans);
+  margin-bottom: 28px;
+}
+
+/* Statistiques de session */
+.score__stats {
+  display: flex;
+  justify-content: center;
+  gap: 32px;
   margin-bottom: 40px;
+  padding: 20px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+}
+
+.score__stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.score__stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  font-family: var(--font-serif);
+  color: var(--text-primary);
+}
+
+.score__stat-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
 }
 
 /* Récapitulatif */
@@ -171,6 +296,14 @@ function getOptionText(questionIndex, optionIndex) {
   color: var(--text-primary);
   margin-bottom: 4px;
   font-family: var(--font-sans);
+}
+
+.score__answer-status {
+  font-size: 11px;
+  color: var(--color-orange);
+  font-weight: 600;
+  font-family: var(--font-sans);
+  margin-bottom: 2px;
 }
 
 .score__answer-picked {
@@ -234,6 +367,15 @@ function getOptionText(questionIndex, optionIndex) {
 
   .score__message {
     font-size: 20px;
+  }
+
+  .score__stats {
+    gap: 16px;
+    padding: 16px 12px;
+  }
+
+  .score__stat-value {
+    font-size: 15px;
   }
 
   .score__answer {

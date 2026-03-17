@@ -1,77 +1,108 @@
 <script setup>
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useQuizStore } from '@/stores/quiz.js'
-import { categories } from '@/data/categories.js'
+import { fetchStats } from '@/services/api.js'
+import { getCategoryColor } from '@/stores/quiz.js'
 import CategoryCard from '@/components/category/CategoryCard.vue'
+import AppLoader from '@/components/ui/AppLoader.vue'
 
 const router = useRouter()
 const quizStore = useQuizStore()
 
-/** Calcule le nombre total de questions toutes catégories confondues */
-const totalQuestions = categories.reduce((acc, cat) => acc + cat.count, 0)
+const categories = ref([])
+const totalQuestions = ref(0)
+const loading = ref(true)
+
+/** Charge les stats et catégories depuis l'API */
+onMounted(async () => {
+  try {
+    const data = await fetchStats()
+    totalQuestions.value = data.totalQuestions
+    categories.value = data.categories.map(cat => ({
+      ...cat,
+      color: getCategoryColor(cat.slug),
+      count: cat.questionCount || 0,
+      desc: cat.description || ''
+    }))
+  } catch {
+    /* Affiche la page sans les données dynamiques */
+  } finally {
+    loading.value = false
+  }
+})
 
 /** Lance le quiz pour la catégorie sélectionnée */
-function handleStartQuiz(category) {
-  quizStore.startQuiz(category)
-  router.push('/quiz')
+async function handleStartQuiz(category) {
+  try {
+    await quizStore.startQuiz(category)
+    router.push('/quiz')
+  } catch {
+    router.push('/categories')
+  }
 }
 </script>
 
 <template>
   <div class="home container">
-    <!-- Section héro - layout asymétrique éditorial -->
-    <section class="hero">
-      <div class="hero__content">
-        <p class="hero__badge">Challenge 14-14-14 — Jour 4</p>
-        <h1 class="hero__title">
-          Testez vos<br />
-          <span class="hero__title-accent">connaissances</span>
-        </h1>
-        <p class="hero__description">
-          Quiz interactif sur la Côte d'Ivoire, l'Afrique, la technologie et les sciences.
-          Combien de bonnes réponses pouvez-vous obtenir ?
-        </p>
-        <router-link to="/categories" class="hero__cta">Commencer le quiz</router-link>
-      </div>
+    <!-- Loader inline -->
+    <AppLoader v-if="loading" text="Chargement" />
 
-      <!-- Bloc de statistiques -->
-      <div class="hero__stats-wrapper">
-        <div class="hero__stats">
-          <div class="hero__stat">
-            <p class="hero__stat-value">{{ totalQuestions }}</p>
-            <p class="hero__stat-label">Questions</p>
-          </div>
-          <div class="hero__stat">
-            <p class="hero__stat-value hero__stat-value--green">{{ categories.length }}</p>
-            <p class="hero__stat-label">Catégories</p>
-          </div>
-          <div class="hero__stat">
-            <p class="hero__stat-value hero__stat-value--orange">15s</p>
-            <p class="hero__stat-label">Par question</p>
-          </div>
+    <template v-else>
+      <!-- Section héro - layout asymétrique éditorial -->
+      <section class="hero">
+        <div class="hero__content">
+          <p class="hero__badge">Challenge 14-14-14 — Jour 4</p>
+          <h1 class="hero__title">
+            Testez vos<br />
+            <span class="hero__title-accent">connaissances</span>
+          </h1>
+          <p class="hero__description">
+            Quiz interactif sur la Côte d'Ivoire, l'Afrique, la technologie et les sciences.
+            Combien de bonnes réponses pouvez-vous obtenir ?
+          </p>
+          <router-link to="/categories" class="hero__cta">Commencer le quiz</router-link>
         </div>
-        <!-- Éléments décoratifs -->
-        <div class="hero__deco hero__deco--orange" />
-        <div class="hero__deco hero__deco--green" />
-      </div>
-    </section>
 
-    <!-- Aperçu des catégories -->
-    <section class="categories-preview">
-      <div class="categories-preview__header">
-        <h2 class="categories-preview__title">Catégories</h2>
-        <router-link to="/categories" class="categories-preview__link">Voir tout →</router-link>
-      </div>
-      <div class="categories-preview__grid">
-        <CategoryCard
-          v-for="(cat, i) in categories"
-          :key="cat.id"
-          :category="cat"
-          :index="i"
-          @select="handleStartQuiz"
-        />
-      </div>
-    </section>
+        <!-- Bloc de statistiques -->
+        <div class="hero__stats-wrapper">
+          <div class="hero__stats">
+            <div class="hero__stat">
+              <p class="hero__stat-value">{{ totalQuestions }}</p>
+              <p class="hero__stat-label">Questions</p>
+            </div>
+            <div class="hero__stat">
+              <p class="hero__stat-value hero__stat-value--green">{{ categories.length }}</p>
+              <p class="hero__stat-label">Catégories</p>
+            </div>
+            <div class="hero__stat">
+              <p class="hero__stat-value hero__stat-value--orange">15s</p>
+              <p class="hero__stat-label">Par question</p>
+            </div>
+          </div>
+          <!-- Éléments décoratifs -->
+          <div class="hero__deco hero__deco--orange" />
+          <div class="hero__deco hero__deco--green" />
+        </div>
+      </section>
+
+      <!-- Aperçu des catégories -->
+      <section class="categories-preview">
+        <div class="categories-preview__header">
+          <h2 class="categories-preview__title">Catégories</h2>
+          <router-link to="/categories" class="categories-preview__link">Voir tout →</router-link>
+        </div>
+        <div class="categories-preview__grid">
+          <CategoryCard
+            v-for="(cat, i) in categories"
+            :key="cat.id"
+            :category="cat"
+            :index="i"
+            @select="handleStartQuiz"
+          />
+        </div>
+      </section>
+    </template>
   </div>
 </template>
 

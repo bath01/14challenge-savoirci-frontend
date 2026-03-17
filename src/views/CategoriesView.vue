@@ -1,15 +1,41 @@
 <script setup>
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useQuizStore } from '@/stores/quiz.js'
-import { categories } from '@/data/categories.js'
+import { fetchCategories } from '@/services/api.js'
+import { getCategoryColor } from '@/stores/quiz.js'
+import AppLoader from '@/components/ui/AppLoader.vue'
 
 const router = useRouter()
 const quizStore = useQuizStore()
 
+const categories = ref([])
+const loading = ref(true)
+const error = ref(null)
+
+/** Charge les catégories depuis l'API */
+onMounted(async () => {
+  try {
+    const data = await fetchCategories()
+    categories.value = data.categories.map(cat => ({
+      ...cat,
+      color: getCategoryColor(cat.slug)
+    }))
+  } catch (err) {
+    error.value = 'Impossible de charger les catégories'
+  } finally {
+    loading.value = false
+  }
+})
+
 /** Lance le quiz pour la catégorie sélectionnée */
-function handleStartQuiz(category) {
-  quizStore.startQuiz(category)
-  router.push('/quiz')
+async function handleStartQuiz(category) {
+  try {
+    await quizStore.startQuiz(category)
+    router.push('/quiz')
+  } catch {
+    error.value = 'Impossible de démarrer le quiz'
+  }
 }
 </script>
 
@@ -18,7 +44,14 @@ function handleStartQuiz(category) {
     <h1 class="categories__title">Catégories</h1>
     <p class="categories__subtitle">Choisissez un thème et lancez le quiz</p>
 
-    <div class="categories__grid">
+    <!-- Chargement -->
+    <AppLoader v-if="loading" text="Chargement des catégories" />
+
+    <!-- Erreur -->
+    <p v-else-if="error" class="categories__error">{{ error }}</p>
+
+    <!-- Grille des catégories -->
+    <div v-else class="categories__grid">
       <div
         v-for="(cat, i) in categories"
         :key="cat.id"
@@ -31,12 +64,9 @@ function handleStartQuiz(category) {
           <span class="category-detail__number" :style="{ color: cat.color }">
             {{ String(i + 1).padStart(2, '0') }}
           </span>
-          <span class="category-detail__badge" :style="{ background: cat.color + '12', color: cat.color }">
-            {{ cat.count }} Q
-          </span>
         </div>
         <h3 class="category-detail__name">{{ cat.name }}</h3>
-        <p class="category-detail__desc">{{ cat.desc }}</p>
+        <p v-if="cat.description" class="category-detail__desc">{{ cat.description }}</p>
         <span class="category-detail__play" :style="{ color: cat.color }">Jouer →</span>
       </div>
     </div>
@@ -63,6 +93,19 @@ function handleStartQuiz(category) {
   color: var(--text-secondary);
   font-family: var(--font-sans);
   margin-bottom: 40px;
+}
+
+.categories__loading,
+.categories__error {
+  font-size: 15px;
+  font-family: var(--font-sans);
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 40px 0;
+}
+
+.categories__error {
+  color: var(--color-red);
 }
 
 .categories__grid {
@@ -93,15 +136,6 @@ function handleStartQuiz(category) {
   font-weight: 800;
   font-family: var(--font-serif);
   opacity: 0.2;
-}
-
-.category-detail__badge {
-  font-size: 11px;
-  padding: 4px 12px;
-  font-weight: 600;
-  font-family: var(--font-sans);
-  text-transform: uppercase;
-  letter-spacing: 1px;
 }
 
 .category-detail__name {
